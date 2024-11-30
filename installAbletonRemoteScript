@@ -1,0 +1,39 @@
+#!python3
+
+import sys
+import shutil
+import os.path
+from pathlib import Path
+import getpass
+
+abletonControlSurfaceName = "AbletonOSC"
+
+# Installing third-party remote scripts
+# Live Versions: 10.1.13 and above
+# https://help.ableton.com/hc/en-us/articles/209072009-Installing-third-party-remote-scripts
+#
+# - Manually create a folder called “Remote Scripts” within your User Library
+# - The default User Library location:
+#    Windows: \Users\[username]\Documents\Ableton\User Library
+#    Mac: Macintosh HD/Users/[username]/Music/Ableton/User Library
+#
+#    Place the unzipped remote script into the "Remote Scripts" folder you just created.
+
+username = getpass.getuser()
+rsDestPath = os.path.realpath(Path(
+    f'/Users/{username}/Music/Ableton/User Library/Remote Scripts/{abletonControlSurfaceName}'
+))
+rsDestPath += "_Syringe"
+
+rsSrcPath = os.path.realpath(".")
+
+# Remove any old files at destination install location
+print(f"\n-- Cleaning old files at {rsDestPath}")
+shutil.rmtree(rsDestPath, ignore_errors=True)
+
+# Install src to dir
+print(f"\n-- Installing source files to {rsDestPath}")
+shutil.copytree(rsSrcPath, rsDestPath, ignore=shutil.ignore_patterns("installAbletonRemoteScript"))
+
+print(f"\n-- Successfully installed '{abletonControlSurfaceName}'")
+print(f"   to {rsDestPath}\n")
