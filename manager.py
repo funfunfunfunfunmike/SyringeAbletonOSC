@@ -1,6 +1,7 @@
 from ableton.v2.control_surface import ControlSurface
 
 from . import abletonosc
+from . import syringeosc
 
 import importlib
 import traceback
@@ -94,6 +95,8 @@ class Manager(ControlSurface):
                 abletonosc.ViewHandler(self)
             ]
 
+        self.syringe_osc = syringeosc.SyringeOSC(self)
+
     def clear_api(self):
         self.osc_server.clear_handlers()
         for handler in self.handlers:
@@ -108,6 +111,7 @@ class Manager(ControlSurface):
         """
         logger.debug("Tick...")
         self.osc_server.process()
+        self.syringe_osc.tick()
         self.schedule_message(1, self.tick)
 
     def reload_imports(self):
@@ -122,6 +126,8 @@ class Manager(ControlSurface):
             importlib.reload(abletonosc.track)
             importlib.reload(abletonosc.view)
             importlib.reload(abletonosc)
+            importlib.reload(syringeosc)
+
         except Exception as e:
             exc = traceback.format_exc()
             logging.warning(exc)

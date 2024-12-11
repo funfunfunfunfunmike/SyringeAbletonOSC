@@ -5,6 +5,8 @@ import shutil
 import os.path
 from pathlib import Path
 import getpass
+import time
+from client import AbletonOSCClient
 
 abletonControlSurfaceName = "AbletonOSC"
 
@@ -37,3 +39,7 @@ shutil.copytree(rsSrcPath, rsDestPath, ignore=shutil.ignore_patterns("installAbl
 
 print(f"\n-- Successfully installed '{abletonControlSurfaceName}'")
 print(f"   to {rsDestPath}\n")
+
+print(f"\n-- Sending message to any listening Live instance to reload modules")
+client = AbletonOSCClient("127.0.0.1", 11000)
+client.send_message("/live/api/reload")
