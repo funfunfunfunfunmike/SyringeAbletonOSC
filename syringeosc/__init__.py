@@ -1,10 +1,13 @@
 from ..abletonosc.osc_server import OSCServer
 from typing import Tuple
 import logging
+import datetime
 import Live
 import tempfile
+import json
 import pickle
 import os
+import time
 
 parameterDefaults = {
     # This Gain used to be "Track_Volume" before I started using utility
@@ -310,21 +313,57 @@ class SyringeOSC:
           # the play position is inside the loop, thus trapping
           # the playback in the loop. Also, we want to be able
           # to modify the loop brace even if looping is off
+          #
+          # In a way, having the loop brace set before the
+          # start marker is a derelict case for Ableton, since
+          # it can never be played. Things behave weirdly, but
+          # predictably, when this is true, but oddly there is
+          # no way to query the loop start/end without turning looping on,
+          # and there is no way to not move the start marker when
+          # turning looping on, and no way to move it back to a state
+          # where it occurs after the loop once its been moved.
+          # So, as a convention, I won't set up clips like this any
+          # more, and we deal with it by setting a more valid loop
+          # 8 beats from the start marker, then turning looping off:
+          #
+          # Capture current start
+          # Turn looping on, which will alter start
+          # Set loop end to 8 beats after start
+          # Set loop start to old start
+          # Set start marker to old start
+          # Turn looping off
+          #
+          # Note that anything unintuitive below is because of loop_end
+          # start_marker, loop_start etc returning different things
+          # depending on whether looping is on/off.
           
           track = canonicalIndex(getTrack(track))
 
           if prop == "loop_start":
-            start = obj.loop_start
+            start = obj.start_marker
+            loop_start = obj.loop_start
             if not obj.looping:
               obj.looping = True
-              start = obj.loop_start
+              loop_start = obj.loop_start
+              if obj.loop_end < start:
+                obj.loop_end = start + 8
+                obj.loop_start = start
+                loop_start = start
+                obj.start_marker = start
               obj.looping = False
-            self.oscSend("clipParamChange", track, clip, prop, start)
+            self.oscSend("clipParamChange", track, clip, prop, loop_start)
           elif prop == "loop_end":
+            start = obj.start_marker
             end = obj.loop_end
             if not obj.looping:
               obj.looping = True
+              # This property is different with loop on/off
               end = obj.loop_end
+              if obj.loop_end < start:
+                obj.loop_end = start + 8
+                end = obj.loop_end
+                obj.loop_start = start
+                obj.start_marker = start
               obj.looping = False
             self.oscSend("clipParamChange", track, clip, prop, end)
           else:
@@ -748,7 +787,11 @@ class SyringeOSC:
     # ##################################
 
     def sendClipInfo(self):
-      tracks = getClipTracks()
+
+      t1 = time.time()
+
+      # Adding QuickCueTrack, though we will not include this in the session
+      tracks = getClipTracks() + [ getQuickCueTrack() ]
 
       if len(tracks) == 0:
           return
@@ -757,7 +800,9 @@ class SyringeOSC:
       # store the roughly 5400 API objects.  So, what we
       # do is scan tracks until we find a clip track.
       # We then loop through those and send out registration
-      # notices for all clip tracks.  This assumes all other
+      # notices for all clip tracks.  
+      # 
+      # This assumes all other
       # clip tracks have identical clips.
 
       # Sending a message for each clip registration, I was losing
@@ -772,25 +817,98 @@ class SyringeOSC:
       # temp file.
 
       templateTrack = tracks[0]
-      session = [[] for x in range(len(tracks))]
+
+      # Adding the -1 to not account for quick cue in session
+      session = [[] for x in range(len(tracks)-1)]
+
+      t2 = time.time()
+      clipslots = [x.clip_slots for x in tracks]
 
       for cID, clipslot in enumerate(templateTrack.clip_slots):
           clip = clipslot.clip
+          
           if clip is not None:
+            
+              # If we encountered a human named or otherwise
+              # unparseable json clip name, give it a default
+              try:
+                  json.loads(clip.name)
+              except ValueError:
+                  defaultName = (
+                                '{{"name": "{name}", '
+                                '"artist": "", '
+                                '"album": "", '
+                                '"year": {year}, '
+                                '"dateAdded": "{today}", '
+                                '"path": "{filepath}", '
+                                '"bpm": {bpm}, '
+                                '"key": ["#"], '
+                                '"cuePoints": [], '
+                                '"loop": {loop}, '
+                                '"categories": [], '
+                                '"desc": ""}}'
+                  ).format(
+                      name = clip.name, 
+                      year = datetime.datetime.now().year, 
+                      today = datetime.datetime.now().strftime("%m/%d/%Y"), 
+                      filepath = clip.file_path, 
+                      bpm = int(getTempo()), 
+                      loop = str(clip.looping).lower()
+                  )
+
+                  clip.name = defaultName
+
               for v, track in enumerate(tracks):
+
+                  # If we're looking at a track other than template
+                  # track, let's do some verification.
+                  # XXX These checks, I think because of accessing each clip slot
+                  # in all the additional tracks, add more than 1 second to clip registration,
+                  # which makes app startup seem sluggish. These checks go away completely if
+                  # we move to having a template track only and duplicating clips as needed
+
+                  if not track == templateTrack:
+                    
+                    # Check that there is a clip here - there may not be
+                    # if I just added a new clip to the template track
+                    if track.clip_slots[cID].clip == None:
+                      self.logger.info("Copying clips")
+                      templateTrack.clip_slots[cID].duplicate_clip_to(track.clip_slots[cID])
+
+                    # Check that the name of the clip in this slot is identical
+                    # to the template track
+                    examine_clip = track.clip_slots[cID].clip
+                    if examine_clip.name != clip.name:
+                      self.logger.info("Found clip mismatching template track name: {c}, on clip track {track}".format(c=examine_clip.name, track=v))
+                      examine_clip.name = clip.name
+
                   name = clip.name
                   file_path = clip.file_path
+                  warpmarks = []
 
-                  tID = absoluteIndex(track)
-                  session[v].append({
-                      "track": tID,
-                      "clip": cID,
-                      "name": name.encode('utf-8'),
-                      "filepath": file_path.encode('utf-8')
-                  })
+                  for warpmarker in clip.warp_markers:
+                    warpmarks.append([warpmarker.beat_time, warpmarker.sample_time])
+
+                  samplelength_sec = float(clip.sample_length) / float(clip.sample_rate)
+
+                  # See above. Not including quick cue in session
+                  if track != getQuickCueTrack():
+
+                    tID = absoluteIndex(track)
+                  
+                    session[v].append({
+                        "track": tID,
+                        "clip": cID,
+                        "warpmarkers" : warpmarks,
+                        "samplelength" : samplelength_sec,
+                        "name": name.encode('utf-8'),
+                        "filepath": file_path.encode('utf-8')
+                    })
 
       sessionFile = pickleToTempFile(session)
       self.oscSend("clipsReady", sessionFile)
+
+      self.logger.info("Registered clips in: {elapsed_time:.2f} seconds".format(elapsed_time=time.time() - t1))
 
     def initAbleton(self):
       self.removeListeners()
@@ -854,7 +972,11 @@ class SyringeOSC:
 
         # Commenting this out for now (6.2.23) because I'm using utility gain
         # may need! May bring back
-        #self.registerTrackParam(parmArray, fxTrackNum, track.mixer_device.volume)
+        
+        # ^^ Temporarily turning on again (12.11.24) because I noticed vol gain
+        # hasn't been resetting when I DJ on the laptop without the syringe. Longer
+        # term fix is use gain for this one as well.
+        self.registerTrackParam(parmArray, fxTrackNum, track.mixer_device.volume)
         # You can find the new way we track volume after the racks
 
         # Track Send One
@@ -1180,3 +1302,7 @@ def getScenes():
 def getScene(num):
   """Returns scene number (num) (starting at 0)"""
   return getSong().scenes[num]
+
+def getTempo():
+  """Returns the current song tempo"""
+  return getSong().tempo
