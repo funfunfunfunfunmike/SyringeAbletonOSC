@@ -567,7 +567,13 @@ class SyringeOSC:
 
     def addListenerByName(self, obj, property, cbFunc):
       testStr = "obj.%s_has_listener(cbFunc)" % property
-      test = eval(testStr)
+      try:
+        test = eval(testStr)
+      except:
+        self.logger.debug("Couldn't add requested listener:")
+        self.logger.debug(obj)
+        self.logger.debug(property)
+        return
       if test != 1:
         self.logger.debug("Adding by name: %s, %s, %s" % (obj, property, cbFunc.__name__))
         testStr = "obj.add_%s_listener(cbFunc)" % property
@@ -579,11 +585,23 @@ class SyringeOSC:
 
     def removeListenerByName(self, obj, property, cbFunc):
       testStr = "obj.%s_has_listener(cbFunc)" % property
-      test = eval(testStr)
+      try:
+        test = eval(testStr)
+      except:
+        self.logger.debug("Couldn't check has_istener for:")
+        self.logger.debug(obj)
+        self.logger.debug(property)
+        return
       if test == 1:
         self.logger.debug("Removing by name: %s, %s, %s" % (obj, property, cbFunc.__name__))
         testStr = "obj.remove_%s_listener(cbFunc)" % property
-        eval(testStr)
+        try:
+          eval(testStr)
+        except:
+          self.logger.debug("Couldn't remove requested listener:")
+          self.logger.debug(obj)
+          self.logger.debug(property)
+          return
 
         # Remove from our list of listeners, if it's in there
         listenerTuple = (obj, property, cbFunc)
