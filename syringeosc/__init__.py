@@ -701,11 +701,6 @@ class SyringeOSC:
           self.deferredFuncs.append({"func": self.resetTrack, "args": [fxT]})
           self.clipAtTempo[canonicalIndex(track)] = None
 
-      # XXX This is where, maybe, you could handle the case
-      # of starting playback from the Ableton session view, and
-      # then loading it into the applicable well. Shouldn't apply
-      # after moving to template track / browser + duplicate.
-
     def playing_status_change(self, track, clip, clipObject):
       if clipObject.is_triggered == 1:
         self.oscSend("playWillTrigger", track, clip)
