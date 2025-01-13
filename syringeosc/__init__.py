@@ -132,9 +132,13 @@ class SyringeOSC:
         self.osc_server.add_handler('/syringe/mute', self.mute_cb)
         self.osc_server.add_handler('/syringe/setPlayingPosition', self.setPlayingPosition_cb)
         self.osc_server.add_handler('/syringe/loop', self.loop_cb)
+        self.osc_server.add_handler('/syringe/setLoopStart', self.setLoopStart_cb)
+        self.osc_server.add_handler('/syringe/setLoopEnd', self.setLoopEnd_cb)
         self.osc_server.add_handler('/syringe/loopControl', self.loopControl_cb)
         self.osc_server.add_handler('/syringe/loopControlStart', self.loopControlStart_cb)
         self.osc_server.add_handler('/syringe/loopControlEnd', self.loopControlEnd_cb)
+        self.osc_server.add_handler('/syringe/watchSelectionChange', self.watchSelectionChange_cb)
+        self.osc_server.add_handler('/syringe/renameSelectedClip', self.renameSelectedClip_cb)
 
     def registerClips_cb(self, params : Tuple):
         """Treated as the main initialization function - this is called
@@ -409,6 +413,85 @@ class SyringeOSC:
       clip.scrub(absBeats)
       clip.stop_scrub()
 
+    # Called with absolute track, don't need to look up
+    def setLoopStart_cb(self, params : Tuple):
+      track = int(params[0])
+      scene = int(params[1])
+      loopstart = int(params[2])
+      
+      #clipTrack = getClipTrack(track)
+
+      clip = getClip(track, scene)
+
+      tempLoopOn = False
+      if not clip.looping:
+        self.logger.info("Temp looping on")
+        tempLoopOn = True
+        clip.looping = True
+      
+      old_start = clip.loop_start
+      old_end = clip.loop_end
+      
+      # If this is an invalid loop start, return. Restore
+      # loop state first if necessary
+      if loopstart >= old_end:
+        if tempLoopOn:
+
+          self.logger.info("Invalid, looping back off")
+          clip.looping = False
+        return
+
+      clip.loop_start = loopstart
+
+      if tempLoopOn:
+        self.logger.info("Temp looping off")
+        clip.looping = False
+        # Normally, the natural callback would take care of reinforming
+        # the engine, but since we're only having looping on for the set
+        # call, it'll be off when the async callback is informed the loop changed,
+        # so we inform here. Could cause things to get out of sync if we
+        # don't ensure the loop_start was set successfully
+        self.oscSend("loop_start", canonicalIndex(int(track)), int(scene), int(loopstart))
+    
+    # Called with absolute track, don't need to look up
+    def setLoopEnd_cb(self, params : Tuple):
+      track = int(params[0])
+      scene = int(params[1])
+      loopend = int(params[2])
+      
+      #clipTrack = getClipTrack(track)
+
+      clip = getClip(track, scene)
+      
+      tempLoopOn = False
+      if not clip.looping:
+        self.logger.info("Temp looping on")
+        tempLoopOn = True
+        clip.looping = True
+      
+      old_start = clip.loop_start
+      old_end = clip.loop_end
+
+      # If this is an invalid loop end, return. Restore
+      # loop state first if necessary
+      if loopend <= old_start:
+        if tempLoopOn:
+          self.logger.info("Invalid, looping back off")
+          clip.looping = False
+        return
+      
+      clip.loop_end = loopend
+      
+      if tempLoopOn:
+        self.logger.info("Temp looping off")
+        # Normally, the natural callback would take care of reinforming
+        # the engine, but since we're only having looping on for the set
+        # call, it'll be off when the async callback is informed the loop changed,
+        # so we inform here. Could cause things to get out of sync if we
+        # don't ensure the loop_start was set successfully
+        self.oscSend("loop_end", canonicalIndex(int(track)), int(scene), int(loopend))
+        clip.looping = False
+
     def loop_cb(self, params : Tuple):
       track = int(params[0])
       scene = int(params[1])
@@ -517,6 +600,30 @@ class SyringeOSC:
       
       clip.loop_end = cur_end + duration
 
+    def watchSelectionChange_cb(self, params : Tuple):
+
+      onOrOff = int(params[0])
+
+      songObject = getSong()
+      viewObject = songObject.view
+      listenerTuple = (viewObject, "detail_clip", self.detail_clip_change)
+
+      if onOrOff:
+        self.logger.debug("watchSelectionChange: Enabled")
+        self.refreshListener(*listenerTuple)
+        # We've just turned on selection callback, artificially
+        # induce selection change once to get things started in
+        # the clip tagger
+        listenerTuple[-1]()
+
+      else:
+        self.logger.debug("watchSelectionChange: Disabled")
+        self.removeListenerByName(*listenerTuple)
+
+    def renameSelectedClip_cb(self, params : Tuple):
+      newName = str(params[0])
+      setDetailClipName(newName)
+
     # ##################################
     # Listener Utilities
     # ##################################
@@ -616,6 +723,23 @@ class SyringeOSC:
     # Called when some state changes in Ableton, usually notifies Engine
     # via OSC
     # ##################################
+
+    def detail_clip_change(self):
+      detailClip = getDetailClip()
+
+      if detailClip:
+        try:
+          clipname = detailClip.name
+          clippath = detailClip.file_path
+        except AttributeError:
+          return
+
+        selTrack, selScene = getSelectedTrackAndSceneIndex()
+
+        clipname = clipname.encode('utf-8')
+        clippath = clippath.encode('utf-8')
+
+        self.oscSend("selectionChange", clipname, clippath, selTrack, selScene)
 
     def current_song_time_change(self):
       beat = int((self.song().current_song_time % 4) + 1)
@@ -1064,6 +1188,25 @@ class SyringeOSC:
 ###################################################
 ###################################################
 
+def getDetailClip():
+  try:
+    clip = getSong().view.detail_clip
+  except AttributeError:
+    return None
+  return clip
+
+def getSelectedTrackAndSceneIndex():
+  track = getSong().view.selected_track
+  trackIndex = absoluteIndex(track)
+
+  detailClip = getDetailClip()
+
+  for clipIndex, candidate in enumerate(track.clip_slots):
+    if candidate.clip == detailClip:
+      return trackIndex, clipIndex
+
+  return None, None
+
 def getClipTracks():
   return [x for x in getTracks() if isTrackClipTrack(x)]
 
@@ -1284,6 +1427,9 @@ def launchClip(track, clip):
 def getClip(track, clip):
   """Returns clip number (clip) in track (track)"""
   return getSong().visible_tracks[track].clip_slots[clip].clip
+
+def setDetailClipName(name):
+  getSong().view.detail_clip.name = str(name)
 
 def setTempo(tempo):
   getSong().tempo = tempo
