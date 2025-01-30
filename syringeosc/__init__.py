@@ -139,6 +139,8 @@ class SyringeOSC:
         self.osc_server.add_handler('/syringe/loopControlEnd', self.loopControlEnd_cb)
         self.osc_server.add_handler('/syringe/watchSelectionChange', self.watchSelectionChange_cb)
         self.osc_server.add_handler('/syringe/renameSelectedClip', self.renameSelectedClip_cb)
+        self.osc_server.add_handler('/syringe/quickCueEnable', self.quickCueEnable_cb)
+        self.osc_server.add_handler('/syringe/quickCueScrub', self.quickCueScrub_cb)
 
     def registerClips_cb(self, params : Tuple):
         """Treated as the main initialization function - this is called
@@ -623,6 +625,138 @@ class SyringeOSC:
     def renameSelectedClip_cb(self, params : Tuple):
       newName = str(params[0])
       setDetailClipName(newName)
+
+    def quickCueEnable_cb(self, params : Tuple):
+      scene = params[0]
+      enable = params[1]
+
+      quickCue_track = getQuickCueTrack()
+      if quickCue_track is None:
+        self.logger.debug("Could not find Quick Cue track...")
+        return
+
+      #### Handle watching quick cue'd clip
+      tracks = getTracks()
+      # My clip track and canonical thing doesn't really
+      # properly allow for quick cue, so searching for it's abs
+      # index myself
+      found = False
+      quick_cue_track_index = 0
+      for t in tracks:
+        if t == quickCue_track:
+          found = True
+          break
+        quick_cue_track_index += 1
+
+      if not found:
+        self.logger.debug("Could not find Quick Cue track...")
+        return
+
+      slot = quickCue_track.clip_slots[scene]
+      clip = slot.clip
+
+      # In quick cue enable, we disable routing master to the cue headphones
+      # whereas when we cue with well cueing, master IS routed so we
+      # can try mixes out
+      if enable == True:
+
+        clipListeners = self.clipParameters.get(quick_cue_track_index, None)
+
+        if clipListeners is not None:
+          # If clipListeners was not None, this track previously had a clip
+          # being watched, which means it has several listeners. Remove them.
+          if len(clipListeners) > 0:
+            lastClipObject = clipListeners[0][0]
+            lastClipObject.ram_mode = False
+
+          for listenerTuple in clipListeners:
+            self.removeListenerByName(*listenerTuple)
+
+        clipListeners = []
+
+        cb = lambda: self.quick_cue_playing_position_change(scene, clip)
+        listenerTuple = (clip, "playing_position", cb)
+        self.refreshListener(*listenerTuple)
+        clipListeners.append(listenerTuple)
+
+        self.clipParameters[quick_cue_track_index] = clipListeners
+
+        # Actually get things going
+
+        # FX tracks 1-9
+        # INST
+        # TWISTER_STEP_SEQ
+        disableCueMaster()
+        soloTrack(getQuickCueTrack())
+
+        clip.ram_mode = True
+
+        # Temporarily set quant to None
+        # Try to be in this state for as little time as possible
+        old_quant = getSong().clip_trigger_quantization
+        song = getSong()
+        song.clip_trigger_quantization = Live.Song.Quantization.q_no_q
+
+        clip.fire()
+
+        # Restore
+        song.clip_trigger_quantization = old_quant
+
+      elif enable == False:
+
+        clipListeners = self.clipParameters.get(quick_cue_track_index, None)
+
+        if clipListeners is not None:
+          # If clipListeners was not None, this track previously had a clip
+          # being watched, which means it has several listeners. Remove them.
+          if len(clipListeners) > 0:
+            lastClipObject = clipListeners[0][0]
+            lastClipObject.ram_mode = False
+
+          for listenerTuple in clipListeners:
+            self.removeListenerByName(*listenerTuple)
+
+        # In quick cue disable, we renable routing master to cue out
+        soloTrack(getQuickCueTrack())
+        enableCueMaster()
+
+        # Temporarily set quant to None
+        # Try to be in this state for as little time as possible
+        old_quant = getSong().clip_trigger_quantization
+        song = getSong()
+        song.clip_trigger_quantization = Live.Song.Quantization.q_no_q
+
+        clip.stop()
+
+        # Restore
+        song.clip_trigger_quantization = old_quant
+
+        clip.ram_mode = False
+
+    def quickCueScrub_cb(self, params : Tuple):
+      scene = params[0]
+      bars = params[1]
+
+      quickCue_track = getQuickCueTrack()
+
+      slot = quickCue_track.clip_slots[scene]
+      clip = slot.clip
+
+      new_beat = clip.playing_position + bars
+      if new_beat < 0:
+        new_beat = 0
+      elif new_beat >= clip.end_marker:
+        new_beat = clip.end_marker - 8
+
+      old_quant = getSong().clip_trigger_quantization
+      song = getSong()
+      # Temporarily set quant to None
+      song.clip_trigger_quantization = Live.Song.Quantization.q_no_q
+      clip.scrub(new_beat)
+      clip.stop_scrub()
+      # Restore
+      song.clip_trigger_quantization = old_quant
+
 
     # ##################################
     # Listener Utilities
@@ -1465,3 +1599,24 @@ def getScene(num):
 def getTempo():
   """Returns the current song tempo"""
   return getSong().tempo
+
+def enableCueMaster():
+  tracks = getCueMasterTracks()
+  for track in tracks:
+    soloTrack(track)
+
+def disableCueMaster():
+  tracks = getCueMasterTracks()
+  for track in tracks:
+    unSoloTrack(track)
+
+def unSoloTrack(track):
+  """Un-solos track"""
+  for ct in getTracks():
+    if ct == track:
+      ct.solo = 0
+
+def unSoloAllTracks():
+  """Un-solos all tracks"""
+  for ct in getTracks():
+    ct.solo = 0
