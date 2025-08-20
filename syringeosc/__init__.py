@@ -141,6 +141,10 @@ class SyringeOSC:
         self.osc_server.add_handler('/syringe/renameSelectedClip', self.renameSelectedClip_cb)
         self.osc_server.add_handler('/syringe/quickCueEnable', self.quickCueEnable_cb)
         self.osc_server.add_handler('/syringe/quickCueScrub', self.quickCueScrub_cb)
+        self.osc_server.add_handler('/syringe/solo', self.solo_cb)
+        self.osc_server.add_handler('/syringe/exclusiveSolo', self.exclusiveSolo_cb)
+        self.osc_server.add_handler('/syringe/cue', self.cue_cb)
+        self.osc_server.add_handler('/syringe/setClipStartMarker', self.setClipStartMarker_cb)
 
     def registerClips_cb(self, params : Tuple):
         """Treated as the main initialization function - this is called
@@ -757,6 +761,77 @@ class SyringeOSC:
       # Restore
       song.clip_trigger_quantization = old_quant
 
+    # Note: In Live, when headphone cueing is enabled,
+    # soloing is not. As a result, to be able to use soloing
+    # as a performance element, we implement solo-ing through
+    # muting tracks.
+    # When cueing is enabled, the solo property controls
+    # cue output. All solo and cue callbacks reflect this
+    def exclusiveSolo_cb(self, params : Tuple):
+      track = int(params[0])
+      soloval = int(params[1])
+      trackO = getFXTrack(track)
+      if soloval == False:
+
+        # May want to check here to see if any of
+        # the tracks are cueing here, where we have
+        # decided that we mute tracks routing to master.
+        # This is a matter of taste, let's see how it goes.
+        unMuteAllTracks()
+      else:
+        exclusiveUnmuteTrack(trackO)
+
+    def solo_cb(self, msg, source):
+      track = int(msg[2])
+      soloval = int(msg[3])
+      trackO = getFXTrack(track)
+      if soloval == False:
+        unMuteTrack(trackO)
+      else:
+        unMuteTrack(trackO)
+
+    def cue_cb(self, params : Tuple):
+      track = int(params[0])
+      cueval = int(params[1])
+      trackO = getFXTrack(track)
+      if cueval == False:
+        unSoloTrack(trackO)
+      else:
+        soloTrack(trackO)
+
+    def setClipStartMarker_cb(self, params : Tuple):
+      # Third param assumed to be in beats since all my clips are warped
+      # If clips aren't warped, set start marker in Ableton goes to seconds
+      # I do have some unwarped one shot samples, but cue points are ill-defined
+      # for those, anyway
+
+      track = params[0]
+      scene = params[1]
+      startBeat = params[2]
+
+      # For some fucking Abletony reason, loop has to
+      # be on to change the start marker
+      # So we can turn it right off after if necessary
+
+      clip = getClip(track, scene)
+
+      oldLoopState = clip.looping
+
+      if oldLoopState == False:
+        clip.looping = True
+
+      # Now we can make modifications
+      # This will fail if the new start
+      # is before the end, so just for the hell of it,
+      # put the end marker 8 bars after the desired start marker
+
+      if clip.end_marker <= startBeat:
+        clip.end_marker = startBeat + 32
+
+      clip.start_marker = startBeat
+
+      if oldLoopState == False:
+        clip.looping = False
 
     # ##################################
     # Listener Utilities
@@ -1494,6 +1569,12 @@ def muteTrack(track):
     if ct == track:
       ct.mute = 1
 
+def unMuteTrack(track):
+  """Unmutes track"""
+  for ct in getTracks():
+    if ct == track:
+      ct.mute = 0
+
 def getQuickCueTrack():
   return getTrackByName("QUICK_CUE")
 
@@ -1620,3 +1701,17 @@ def unSoloAllTracks():
   """Un-solos all tracks"""
   for ct in getTracks():
     ct.solo = 0
+
+def unMuteAllTracks():
+  """Un-mutes all tracks"""
+  for ct in getTracks():
+    ct.mute = 0
+
+def exclusiveUnmuteTrack(track):
+  """Given a track, makes sure it is the only one
+    NOT muted."""
+  for ct in getTracks():
+    if ct == track:
+      ct.mute = 0
+    else:
+      ct.mute = 1
