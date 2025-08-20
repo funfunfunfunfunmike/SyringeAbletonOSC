@@ -13,7 +13,10 @@ parameterDefaults = {
     # This Gain used to be "Track_Volume" before I started using utility
     "Track_Volume": .7,
     "Gain": .7,
-    "A-Delay": 0,
+    "Delay": 0,
+    "Delay_Feedback": .75,
+    "Delay_Time": .5,
+    "Delay_Mod": 0,
     "Wet/Dry": 0,
     "1": 0,
     "1/2": 0,
@@ -22,24 +25,29 @@ parameterDefaults = {
     "1/16": 0,
     "1/32": 0,
     "1/64": 0,
-    "Sidechain_Duck": 0,
     "High_Pass": 0,
     "Low_Pass": 0,
     "Filter_Resonance": 0,
     "Reverb": 0,
+    "Reverb_Decay": 0,
+    "Reverb_Cut": 0,
     "Fade_To_Grey": 0,
-    "Bit_Reduce": 0,
     "Phaser": 0,
     "Low": .5,
     "Middle": .5,
     "High": .5,
     "Pitch": .5,
     "Timbre": .5,
-    "DelayStorm": 0,
+    "HP_Tight": 0,
+    "Chip_Vocode": 0,
+    "Chip_Lofi": 0,
+    "Trem_1/24": 0,
+    "Trem_1/4": 0,
     "Trem_1/16": 0,
     "Trem_1/12": 0,
     "Trem_1/8": 0,
     "Trem_Shape": 0,
+    "Trem_Offset": 0,
     "Sat_Mids": 0,
     "Clip_Track_Volume": 0,
     "Master_Track_Volume": .85,
@@ -524,7 +532,7 @@ class SyringeOSC:
       playpos = clip.playing_position
 
       if clip.looping == True and playpos >= cur_start and playpos <= cur_end:
-        self.logger.info("Alreayd looping and in loop")
+        self.logger.info("Already looping and in loop")
         # If clip was already looping, and we're in the loop, extend or
         # shorten the current loop retaining its start time
         clip.loop_end = cur_start + duration
@@ -1325,9 +1333,10 @@ class SyringeOSC:
         self.registerTrackParam(parmArray, fxTrackNum, track.mixer_device.volume)
         # You can find the new way we track volume after the racks
 
+        # 8/19/25 - Trying to retire delay send in favor of per track delay/echo
         # Track Send One
-        self.registerTrackParam(parmArray, fxTrackNum,
-                                track.mixer_device.sends[0])
+        #self.registerTrackParam(parmArray, fxTrackNum,
+        #                        track.mixer_device.sends[0])
 
         # FX Wet / Dry
         self.registerTrackParam(parmArray, fxTrackNum,
@@ -1335,7 +1344,12 @@ class SyringeOSC:
 
         # The following three loops pull from the WET chain (chain 1)
         # of the Plustype Well Rack chain device.  The WET chain
-        # contains three child devices
+        # contains five child racks
+
+        # Params are 1 indexed. You can use "getLivePath.amxd" in 
+        # /Users/Shared/se3/src/se3/Ableton/Syringe_Live Project/Devices"
+        # to inspect a macro param in Ableton by clicking it
+
         # Beat repeat 1
         # Beat repeat 1/2
         # Beat repeat 1/4
@@ -1349,31 +1363,44 @@ class SyringeOSC:
               parmArray, fxTrackNum,
               track.devices[0].chains[1].devices[0].parameters[paramIndex])
 
-        # Sidechain duck
+        # HP_Tight
         # High pass
         # Low pass
         # Filter resonance
         # Reverb
-        # Fade to grey
-        # Bit reduce
+        # Reverb_Cut
+        # Reverb_Decay
         # Phaser
         for paramIndex in range(1, 9):
           self.registerTrackParam(
               parmArray, fxTrackNum,
               track.devices[0].chains[1].devices[1].parameters[paramIndex])
 
-        # Pitch
-        # Timbre
-        # DelayStorm
+        # Empty macro spot 1, not processed
+        # Trem_1/24
+        # Trem_1/4
         # Trem_1/16
         # Trem_1/12
         # Trem_1/8
         # Trem_Shape
-        # Sat_Mids
-        for paramIndex in range(1, 9):
+        # Trem_Offset
+        for paramIndex in range(2, 9):
           self.registerTrackParam(
               parmArray, fxTrackNum,
               track.devices[0].chains[1].devices[2].parameters[paramIndex])
+
+        # Sat_Mids
+        # Chip_Vocode
+        # Chip_Lofi
+        # Fade_To_Grey
+        # Pitch
+        # Timbre
+        # Empty macro spot 7, not processed
+        # Empty macro spot 8, not processed
+        for paramIndex in range(1, 7):
+          self.registerTrackParam(
+              parmArray, fxTrackNum,
+              track.devices[0].chains[1].devices[3].parameters[paramIndex])
 
         # EQ Low
         # EQ Middle
@@ -1381,13 +1408,22 @@ class SyringeOSC:
         for paramIndex in range(1, 4):
           self.registerTrackParam(
               parmArray, fxTrackNum,
-              track.devices[0].chains[1].devices[3].parameters[paramIndex])
+              track.devices[0].chains[1].devices[4].parameters[paramIndex])
 
         # XXX Now using utility gain rather than the track mixer volume,
         # because if I use track mixer volume, we can't hear the track
         # in cueing
         self.registerTrackParam(parmArray, fxTrackNum,
                                 track.devices[1].parameters[1])
+
+        # Delay
+        # Delay_Feedback
+        # Delay_Time
+        # Delay_Mod
+        for paramIndex in range(1, 5):
+          self.registerTrackParam(
+              parmArray, fxTrackNum,
+              track.devices[2].parameters[paramIndex])
 
         self.trackParameters.append(parmArray)
 
