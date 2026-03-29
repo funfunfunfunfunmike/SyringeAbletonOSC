@@ -3,8 +3,17 @@
     "tasks": [
         {
             "label": "Install Remote Script",
-            "type": "shell",
-            "command": "python3 installAbletonRemoteScript",
+            "type": "process",
+            "command": "${workspaceFolder}/../../dev/bin/python",
+            "args": [
+                "installAbletonRemoteScript"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PATH": "${workspaceFolder}/../../dev/bin:/opt/local/bin:/opt/local/sbin:/usr/local/bin:/usr/bin:/bin"
+                }
+            },
             "problemMatcher": [],
             "presentation": {
               "echo": true,
