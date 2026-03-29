@@ -2,16 +2,16 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Install Remote Script",
+            "label": "syringe-control-surface/Install Remote Script",
             "type": "process",
-            "command": "${workspaceFolder}/../../dev/bin/python",
+            "command": "${workspaceFolder}/../.venv/bin/python",
             "args": [
                 "installAbletonRemoteScript"
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
                 "env": {
-                    "PATH": "${workspaceFolder}/../../dev/bin:/opt/local/bin:/opt/local/sbin:/usr/local/bin:/usr/bin:/bin"
+                    "PATH": "${workspaceFolder}/../.venv/bin:/opt/local/bin:/opt/local/sbin:/usr/local/bin:/usr/bin:/bin"
                 }
             },
             "problemMatcher": [],

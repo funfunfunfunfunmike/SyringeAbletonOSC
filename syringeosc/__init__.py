@@ -1347,7 +1347,7 @@ class SyringeOSC:
         # contains five child racks
 
         # Params are 1 indexed. You can use "getLivePath.amxd" in 
-        # /Users/Shared/se3/src/se3/Ableton/Syringe_Live Project/Devices"
+        # /Users/Shared/syringe-instrument/src/se3/Ableton/Syringe_Live Project/Devices"
         # to inspect a macro param in Ableton by clicking it
 
         # Beat repeat 1
