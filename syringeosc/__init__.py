@@ -154,6 +154,34 @@ class SyringeOSC:
         self.osc_server.add_handler('/syringe/cue', self.cue_cb)
         self.osc_server.add_handler('/syringe/setClipStartMarker', self.setClipStartMarker_cb)
 
+        # -- Programmatic MIDI mapping --
+        self.osc_server.add_handler('/live/midimap/map_cc_by_name', self.map_cc_by_name_cb)
+        self.osc_server.add_handler('/live/midimap/clear',          self.clear_midi_map_cb)
+
+    def map_cc_by_name_cb(self, params: Tuple):
+        """Register a CC→parameter mapping by device path and parameter name.
+        Params: track_index, device_path, param_name, channel (0-indexed), cc"""
+        track_index = int(params[0])
+        device_path = str(params[1])
+        param_name  = str(params[2])
+        channel     = int(params[3])
+        cc          = int(params[4])
+        track = self.abletonOSCManager.song.tracks[track_index]
+        parameter = _find_parameter(track, device_path, param_name)
+        if parameter is None:
+            self.logger.warning("map_cc_by_name: '%s' not found on track %d (path: %s)" % (
+                param_name, track_index, device_path))
+            return
+        self.abletonOSCManager.midi_mappings[(channel, cc)] = parameter
+        self.abletonOSCManager.request_rebuild_midi_map()
+        self.logger.info("Mapped CC %d ch %d → %s / %s" % (cc, channel, device_path, param_name))
+
+    def clear_midi_map_cb(self, params: Tuple):
+        """Clear all programmatic MIDI mappings and rebuild an empty map."""
+        self.abletonOSCManager.midi_mappings.clear()
+        self.abletonOSCManager.request_rebuild_midi_map()
+        self.logger.info("Cleared all MIDI mappings")
+
     def registerClips_cb(self, params : Tuple):
         """Treated as the main initialization function - this is called
             when requested from the Python Syringe Engine"""
@@ -1751,3 +1779,45 @@ def exclusiveUnmuteTrack(track):
       ct.mute = 0
     else:
       ct.mute = 1
+
+
+# ---------------------------------------------------------------------------
+# Helpers for programmatic MIDI mapping (used by SyringeOSC.map_cc_by_name_cb)
+# ---------------------------------------------------------------------------
+
+def _find_parameter(track, device_path, param_name):
+    """Walk device_path components by name through the track's device tree,
+    then find param_name in the final device's parameters.
+
+    device_path is slash-separated device names, e.g. "Plustype Well Rack/Effects 2".
+    param_name is the Ableton parameter name on the final device (may contain '/')."""
+    components = device_path.split("/")
+    device = _find_device_by_name(list(track.devices), components[0])
+    if device is None:
+        return None
+    for component in components[1:]:
+        device = _find_device_in_chains(device, component)
+        if device is None:
+            return None
+    for param in device.parameters:
+        if param.name == param_name:
+            return param
+    return None
+
+
+def _find_device_by_name(devices, name):
+    for d in devices:
+        if d.name == name:
+            return d
+    return None
+
+
+def _find_device_in_chains(rack_device, name):
+    """Search one level into a rack's chains for a device by name."""
+    if not hasattr(rack_device, "chains"):
+        return None
+    for chain in rack_device.chains:
+        for device in chain.devices:
+            if device.name == name:
+                return device
+    return None
